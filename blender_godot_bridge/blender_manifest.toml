@@ -1,0 +1,27 @@
+schema_version = "1.0.0"
+
+id = "godot_bridge"
+version = "1.0.0"
+name = "Godot Bridge"
+tagline = "Export Blender scenes and assets directly to Godot 4"
+maintainer = "hoverbox"
+type = "add-on"
+
+website = "https://github.com/hoverbox/Godot-Bridge"
+
+tags = ["Import-Export", "Game Engine", "Pipeline"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Export scene and asset files to a Godot project directory"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".*",
+  "*.zip",
+  "screenshots/",
+]
