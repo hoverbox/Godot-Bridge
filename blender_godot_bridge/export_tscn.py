@@ -54,11 +54,13 @@ from .utils import (
 from .export_glb import (
     read_glb_json, glb_node_transforms,
     export_glb_isolated, export_concave_glb, write_concave_import_file,
+    write_glb_import_file,
 )
 from .collision import (
     bbox_half_extents,
     write_sized_shape, write_convex_shape,
 )
+from .materials import export_materials_for_objects
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +161,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
     obj_bbox_ctr   = {}   # obj.name → Vector(gx,gy,gz)  bbox center in Godot space
     warnings       = []   # non-fatal warnings collected during build
     depsgraph      = context.evaluated_depsgraph_get()
+    mat_res_paths  = {}   # material name -> res:// path of .tres  (may be empty)
 
     def new_id() -> str:
         v = str(id_counter[0]); id_counter[0] += 1; return v
@@ -202,8 +205,9 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
         return IDENTITY_TRANSFORM
 
     def export_centered(context, objects, glb_path):
+        strip = sp.export_materials
         if not apply_tr:
-            export_glb_isolated(context, objects, glb_path, apply_tr)
+            export_glb_isolated(context, objects, glb_path, apply_tr, strip_materials=strip)
             return
         centroids_blender = {}
         for obj in objects:
@@ -240,7 +244,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
             for obj in objects:
                 if obj.name in centroids_blender:
                     obj.location = obj.location - centroids_blender[obj.name]
-            export_glb_isolated(context, objects, glb_path, True)
+            export_glb_isolated(context, objects, glb_path, True, strip_materials=strip)
         finally:
             for obj in objects:
                 obj.location = saved_loc[obj.name]
@@ -314,6 +318,8 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
     # ------------------------------------------------------------------
     # Phase 1: Export GLBs
     # ------------------------------------------------------------------
+    glb_objects = {}   # glb_name -> [obj, ...]  — tracks which objects are in each GLB
+
     if mode == "OBJECT":
         group_buckets = {}
         for obj in export_objs:
@@ -328,6 +334,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
             glb_path = os.path.join(export_dir_abs, glb_name)
             export_centered(context, [obj], glb_path)
             register_mesh_glb(glb_name, glb_path)
+            glb_objects.setdefault(glb_name, []).append(obj)
 
         for gname, objs in group_buckets.items():
             glb_name = gname + ".glb"
@@ -335,6 +342,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
             export_centered(context, objs, glb_path)
             for obj in objs:
                 register_mesh_glb(glb_name, glb_path)
+                glb_objects.setdefault(glb_name, []).append(obj)
 
     else:  # COLLECTION mode — one GLB per object (always INDIVIDUAL)
         for obj in export_objs:
@@ -344,6 +352,39 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
             glb_path = os.path.join(export_dir_abs, glb_name)
             export_centered(context, [obj], glb_path)
             register_mesh_glb(glb_name, glb_path)
+            glb_objects.setdefault(glb_name, []).append(obj)
+
+    # ------------------------------------------------------------------
+    # Phase 1b: Export materials
+    # ------------------------------------------------------------------
+    mat_rid_map = {}      # material name -> ext_resource id string
+    mat_res_map = {}      # material name -> res:// path of .tres
+    if sp.export_materials:
+        exported_mats = export_materials_for_objects(
+            export_objs, project_root_abs, export_dir_abs,
+        )
+        for mat_name, res_path in exported_mats.items():
+            rid = new_id()
+            ext_res_list.append((rid, res_path, "Material"))
+            mat_rid_map[mat_name] = rid
+            mat_res_map[mat_name] = res_path
+
+    # ------------------------------------------------------------------
+    # Phase 1c: Write GLB .import sidecars with material overrides
+    # ------------------------------------------------------------------
+    if sp.export_materials and mat_res_map:
+        for glb_name, objs in glb_objects.items():
+            glb_path = os.path.join(export_dir_abs, glb_name)
+            res_path = compute_res_path(project_root_abs, export_dir_abs, glb_name)
+            # Collect material overrides: surface 0 → .tres res path.
+            # For grouped GLBs we use the first object's material (all share slot 0).
+            mat_overrides = {}
+            for obj in objs:
+                for idx, slot in enumerate(obj.material_slots):
+                    if slot.material and slot.material.name in mat_res_map:
+                        mat_overrides[idx] = mat_res_map[slot.material.name]
+            write_glb_import_file(glb_path, res_path,
+                                  mat_overrides if mat_overrides else None)
 
     # ------------------------------------------------------------------
     # Phase 2: Build collision data
@@ -450,8 +491,12 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
     lines.append(f'[gd_scene load_steps={load_steps} format=3]')
     lines.append("")
 
-    for rid, res_path in ext_res_list:
-        lines.append(f'[ext_resource type="PackedScene" path="{res_path}" id="{rid}"]')
+    for entry in ext_res_list:
+        if len(entry) == 3:
+            rid, res_path, rtype = entry
+        else:
+            rid, res_path = entry; rtype = "PackedScene"
+        lines.append(f'[ext_resource type="{rtype}" path="{res_path}" id="{rid}"]')
     if ext_res_list:
         lines.append("")
 
@@ -654,6 +699,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
                 else:
                     lines.append(f'[node name="{mesh_nname}" type="MeshInstance3D" parent="{body_path}"]')
                 lines.append(f"transform = {mesh_tr}")
+                _write_mat_override(obj)
                 lines.append("")
 
                 # Per-object collision
@@ -718,6 +764,7 @@ def build_single_object_tscn(context, project_root_abs: str, export_dir_abs: str
     sub_res_blocks = []
     obj_centroid   = {}   # obj.name -> vertex mean Vector (Godot space)
     obj_bbox_ctr   = {}   # obj.name -> bbox center Vector (Godot space)
+    mat_rid_map    = {}   # material name -> ext_resource id
 
     def new_id() -> str:
         v = str(id_counter[0]); id_counter[0] += 1; return v
@@ -767,10 +814,10 @@ def build_single_object_tscn(context, project_root_abs: str, export_dir_abs: str
         centroid_bl = mathutils.Vector((c.x, -c.z, c.y))
         saved_loc   = obj.location.copy()
         obj.location = obj.location - centroid_bl
-        export_glb_isolated(context, [obj], glb_path, True)
+        export_glb_isolated(context, [obj], glb_path, True, strip_materials=sp.export_materials)
         obj.location = saved_loc
     else:
-        export_glb_isolated(context, [obj], glb_path, apply_tr)
+        export_glb_isolated(context, [obj], glb_path, apply_tr, strip_materials=sp.export_materials)
 
     rid = register_mesh_glb(glb_name, glb_path)
 
@@ -838,14 +885,37 @@ def build_single_object_tscn(context, project_root_abs: str, export_dir_abs: str
                 col_info = {"ext_rid": col_rid}
                 # GLB already carries geometry in world space -- identity is correct
 
+    # Export materials and write GLB sidecar with overrides
+    mat_res_map_batch = {}   # mat name -> res:// path
+    if sp.export_materials:
+        exported_mats = export_materials_for_objects([obj], project_root_abs, export_dir_abs)
+        for mat_name, res_path in exported_mats.items():
+            rid_m = new_id()
+            ext_res_list.append((rid_m, res_path, "Material"))
+            mat_rid_map[mat_name] = rid_m
+            mat_res_map_batch[mat_name] = res_path
+        # Write the GLB .import sidecar with material overrides
+        if mat_res_map_batch and rid:
+            glb_res = compute_res_path(project_root_abs, export_dir_abs, glb_name)
+            mat_overrides = {}
+            for idx, slot in enumerate(obj.material_slots):
+                if slot.material and slot.material.name in mat_res_map_batch:
+                    mat_overrides[idx] = mat_res_map_batch[slot.material.name]
+            write_glb_import_file(glb_path, glb_res,
+                                  mat_overrides if mat_overrides else None)
+
     # Assemble TSCN
     lines = []
     load_steps = 1 + len(ext_res_list) + len(sub_res_blocks)
     lines.append(f'[gd_scene load_steps={load_steps} format=3]')
     lines.append("")
 
-    for r_id, res_path in ext_res_list:
-        lines.append(f'[ext_resource type="PackedScene" path="{res_path}" id="{r_id}"]')
+    for entry in ext_res_list:
+        if len(entry) == 3:
+            r_id, res_path, rtype = entry
+        else:
+            r_id, res_path = entry; rtype = "PackedScene"
+        lines.append(f'[ext_resource type="{rtype}" path="{res_path}" id="{r_id}"]')
     if ext_res_list:
         lines.append("")
 

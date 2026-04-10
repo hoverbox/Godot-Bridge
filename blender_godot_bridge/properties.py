@@ -189,6 +189,14 @@ class GodotSceneProps(PropertyGroup):
         name="Export Folder", subtype="DIR_PATH", default="",
         description="Where to write .tscn and .glb files (must be inside project root)",
     )
+    export_materials: BoolProperty(
+        name="Export Materials", default=True,
+        description=(
+            "Convert Blender materials to Godot StandardMaterial3D .tres files. "
+            "Textures are copied to <export_folder>/textures/. "
+            "Each mesh node gets surface_material_override/0 pointing at its .tres."
+        ),
+    )
     apply_transforms: BoolProperty(
         name="Apply Transforms on GLB", default=True,
         description=(

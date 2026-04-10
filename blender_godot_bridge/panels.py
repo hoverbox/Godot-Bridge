@@ -1,5 +1,5 @@
 """
-panels.py — Blender UI panels for Godot Bridge.
+panels.py — Blender UI panels for Blender to Godot Export.
 """
 
 import bpy
@@ -17,7 +17,7 @@ class GODOT_PT_ObjectPanel(Panel):
     bl_idname      = "GODOT_PT_object_panel"
     bl_space_type  = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category    = "Godot Bridge"
+    bl_category    = "Godot Export"
 
     def draw(self, context):
         layout = self.layout
@@ -154,12 +154,9 @@ class GODOT_UL_SceneList(bpy.types.UIList):
     bl_idname = "GODOT_UL_scene_list"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            row.prop(item, "scene_name", text="", emboss=False, icon='SCENE')
-            row.prop(item, "root_node_type", text="", emboss=False)
-        elif self.layout_type == 'GRID':
-            layout.label(text=item.scene_name, icon='SCENE')
+        row = layout.row(align=True)
+        row.prop(item, "scene_name", text="", emboss=False, icon='SCENE')
+        row.prop(item, "root_node_type", text="", emboss=False)
 
 
 class GODOT_PT_ScenePanel(Panel):
@@ -167,7 +164,7 @@ class GODOT_PT_ScenePanel(Panel):
     bl_idname      = "GODOT_PT_scene_panel"
     bl_space_type  = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category    = "Godot Bridge"
+    bl_category    = "Godot Export"
     bl_order       = 1
 
     def draw(self, context):
@@ -191,6 +188,7 @@ class GODOT_PT_ScenePanel(Panel):
                 pass
 
         box.prop(sp, "apply_transforms")
+        box.prop(sp, "export_materials")
 
         # ── Scene list ──────────────────────────────────────────────────────
         layout.separator()
@@ -316,7 +314,7 @@ class GODOT_PT_BatchExportPanel(Panel):
     bl_idname      = "GODOT_PT_batch_export_panel"
     bl_space_type  = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category    = "Godot Bridge"
+    bl_category    = "Godot Export"
     bl_order       = 2
 
     def draw(self, context):

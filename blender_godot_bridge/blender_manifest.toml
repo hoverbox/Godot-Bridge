@@ -2,7 +2,7 @@ schema_version = "1.0.0"
 
 id = "godot_bridge"
 version = "1.0.0"
-name = "Godot Bridge"
+name = "Blender to Godot Export"
 tagline = "Export Blender scenes and assets directly to Godot 4"
 maintainer = "hoverbox"
 type = "add-on"
