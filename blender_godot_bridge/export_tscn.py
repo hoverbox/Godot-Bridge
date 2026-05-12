@@ -506,6 +506,25 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
     lines.append(f'[node name="{root_name}" type="{root_type}"]')
     lines.append("")
 
+    def _write_mat_override(obj):
+        """
+        Append surface_material_override lines for obj's material slots.
+
+        This is the most reliable way to bind .tres materials to an instanced
+        PackedScene node — it works on every re-export without requiring the
+        .import sidecar key format to be exactly right, and it matches what the
+        Godot editor itself writes when you assign materials in the Inspector.
+
+        Must be called immediately after the transform line of a mesh node,
+        before the trailing empty line.
+        """
+        if not sp.export_materials:
+            return
+        for idx, slot in enumerate(obj.material_slots):
+            if slot.material and slot.material.name in mat_rid_map:
+                rid_m = mat_rid_map[slot.material.name]
+                lines.append(f'surface_material_override/{idx} = ExtResource("{rid_m}")')
+
     def write_mesh_node(obj, parent_path, node_name=None):
         """Write a MeshInstance3D node for obj under parent_path."""
         nname    = node_name or (sanitize(obj.name) + "_Mesh")
@@ -520,6 +539,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
         else:
             lines.append(f'[node name="{nname}" type="MeshInstance3D" parent="{parent_path}"]')
         lines.append(f"transform = {tr}")
+        _write_mat_override(obj)
         lines.append("")
 
     def write_col_node(col_info, node_name, parent_path, col_transform_str):
@@ -589,6 +609,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
                     else:
                         lines.append(f'[node name="{mesh_nname}" type="MeshInstance3D" parent="{body_path}"]')
                     lines.append(f"transform = {mesh_tr}")
+                    _write_mat_override(obj)
                     lines.append("")
 
                     # Collision child
@@ -607,6 +628,7 @@ def build_tscn(context, project_root_abs: str, export_dir_abs: str,
                     else:
                         lines.append(f'[node name="{nname}" type="MeshInstance3D" parent="{parent_path}"]')
                     lines.append(f"transform = {mesh_tr}")
+                    _write_mat_override(obj)
                     if grp_line:
                         lines.append(grp_line)
                     lines.append("")

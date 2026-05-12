@@ -197,7 +197,11 @@ def write_glb_import_file(glb_path: str, res_path: str,
             f'"material/{i}": "{p}"'
             for i, p in sorted(material_overrides.items())
         )
-        subresources = '{' + '"meshes": {"' + glb_stem + '": {' + mat_entries + '}}' + '}'
+        # Godot 4 expects the key to be "NodeName/MeshDataName".
+        # Blender's GLTF exporter names both the scene node and the mesh
+        # data-block after the GLB stem, so the correct key is "stem/stem".
+        mesh_key = glb_stem + "/" + glb_stem
+        subresources = '{' + '"meshes": {"' + mesh_key + '": {' + mat_entries + '}}' + '}'
     else:
         subresources = "{}"
 

@@ -155,7 +155,8 @@ def _res_path_for_texture(project_root_abs: str, tex_abs: str) -> str:
 # Godot .import sidecar writer
 # ---------------------------------------------------------------------------
 
-def _write_texture_import(tex_abs: str, is_normal: bool = False) -> None:
+def _write_texture_import(tex_abs: str, is_normal: bool = False,
+                          res_path: str = "") -> None:
     """
     Write a Godot 4 .import sidecar next to tex_abs so the editor never
     auto-discovers and re-imports it mid-session, preventing the reimport
@@ -164,9 +165,14 @@ def _write_texture_import(tex_abs: str, is_normal: bool = False) -> None:
     Normal maps get compress/normal_map=1 (RG compression, discard blue).
     All other 3D textures get VRAM compression with mipmaps enabled.
     Overwrites any existing sidecar to keep settings in sync.
+
+    res_path: the res:// path of the texture (e.g. "res://Assets/textures/Foo.png").
+              Must be provided so Godot can locate the source file on import.
     """
     import_path = tex_abs + ".import"
     fname = os.path.basename(tex_abs)
+    # Fall back gracefully if caller didn't pass res_path (shouldn't happen).
+    source_file = res_path if res_path else f"res://{fname}"
     normal_map_val = "1" if is_normal else "0"
 
     lines = [
@@ -178,7 +184,7 @@ def _write_texture_import(tex_abs: str, is_normal: bool = False) -> None:
         "",
         "[deps]",
         "",
-        f'source_file="res://PLACEHOLDER/{fname}"',
+        f'source_file="{source_file}"',
         "",
         "[params]",
         "",
@@ -466,8 +472,9 @@ def export_materials_for_objects(
                 dest = _copy_texture(img, tex_dir)
                 if dest is None:
                     return None
-                _write_texture_import(dest, is_normal=is_normal)
-                return _res_path_for_texture(project_root_abs, dest)
+                rp = _res_path_for_texture(project_root_abs, dest)
+                _write_texture_import(dest, is_normal=is_normal, res_path=rp)
+                return rp
 
             albedo_tex_res    = tex_res(albedo_img)
             metallic_tex_res  = tex_res(metallic_img)
